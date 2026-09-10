@@ -1,0 +1,254 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // Helpers
+    // =========================================================================
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function hasRole(role) {
+      return isSignedIn() && userDoc().role == role;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && userDoc().role in ['admin', 'super_admin', 'verification_staff', 'support_staff', 'finance_staff'];
+    }
+
+    function isSuperAdmin() {
+      return isSignedIn() && userDoc().role == 'super_admin';
+    }
+
+    function isProvider() {
+      return isSignedIn() && userDoc().role == 'provider';
+    }
+
+    function isCustomer() {
+      return isSignedIn() && userDoc().role == 'customer';
+    }
+
+    // =========================================================================
+    // Users
+    // =========================================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId) || isAdmin();
+      // Prevent role escalation from client
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'permissions']);
+      allow delete: if isSuperAdmin();
+    }
+
+    // =========================================================================
+    // Providers (public profile fields only)
+    // =========================================================================
+
+    match /providers/{providerId} {
+      allow read: if true; // Public profiles; sensitive fields filtered in queries / Cloud Functions
+      allow create: if isOwner(providerId) && isProvider();
+      allow update: if (isOwner(providerId) && isProvider()) || isAdmin();
+      // Never allow client to set verification status to verified
+      allow update: if isOwner(providerId)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(['status', 'verificationStatus', 'rating', 'completedJobs', 'responseRate']);
+      allow delete: if isSuperAdmin();
+    }
+
+    // =========================================================================
+    // Service taxonomy (read-heavy, admin write)
+    // =========================================================================
+
+    match /serviceCategories/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /serviceKeywords/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // =========================================================================
+    // Jobs
+    // =========================================================================
+
+    match /jobs/{jobId} {
+      allow read: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid ||
+        isAdmin() ||
+        // Provider can read if matched
+        exists(/databases/$(database)/documents/matches/$(jobId + '_' + request.auth.uid))
+      );
+      allow create: if isCustomer() && request.resource.data.customerId == request.auth.uid;
+      allow update: if isOwner(resource.data.customerId) || isAdmin() || isProvider();
+      // State transitions must be validated server-side (Cloud Functions preferred)
+    }
+
+    // =========================================================================
+    // Matches
+    // =========================================================================
+
+    match /matches/{matchId} {
+      allow read: if isSignedIn() && (
+        resource.data.providerId == request.auth.uid ||
+        get(/databases/$(database)/documents/jobs/$(resource.data.jobId)).data.customerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if false; // Only Cloud Functions / Admin SDK
+      allow update: if isProvider() && resource.data.providerId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // Quotes
+    // =========================================================================
+
+    match /quotes/{quoteId} {
+      allow read: if isSignedIn() && (
+        resource.data.providerId == request.auth.uid ||
+        resource.data.customerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isProvider() && request.resource.data.providerId == request.auth.uid;
+      allow update: if (isProvider() && resource.data.providerId == request.auth.uid) ||
+                       (isCustomer() && resource.data.customerId == request.auth.uid) ||
+                       isAdmin();
+    }
+
+    // =========================================================================
+    // Bookings
+    // =========================================================================
+
+    match /bookings/{bookingId} {
+      allow read: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if false; // Server-side only (race-condition safety)
+      allow update: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid ||
+        resource.data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+    }
+
+    // =========================================================================
+    // Messages
+    // =========================================================================
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid ||
+        resource.data.receiverId == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
+      allow update: if isSignedIn() && (
+        resource.data.receiverId == request.auth.uid // mark read
+      );
+    }
+
+    // =========================================================================
+    // Reviews
+    // =========================================================================
+
+    match /reviews/{reviewId} {
+      allow read: if resource.data.isVisible == true || isAdmin() ||
+        resource.data.reviewerId == request.auth.uid ||
+        resource.data.revieweeId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.reviewerId == request.auth.uid;
+      // Prevent self-review and pre-completion reviews via Cloud Functions
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Payments / Transactions — never client write
+    // =========================================================================
+
+    match /payments/{paymentId} {
+      allow read: if isSignedIn() && (
+        get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.customerId == request.auth.uid ||
+        get(/databases/$(database)/documents/bookings/$(resource.data.bookingId)).data.providerId == request.auth.uid ||
+        isAdmin()
+      );
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Verification documents — highly restricted
+    // =========================================================================
+
+    match /verificationDocuments/{docId} {
+      allow read: if isOwner(resource.data.providerId) || isAdmin();
+      allow create: if isProvider() && request.resource.data.providerId == request.auth.uid;
+      allow update: if isAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // Notifications
+    // =========================================================================
+
+    match /notifications/{notificationId} {
+      allow read, update: if isOwner(resource.data.userId);
+      allow create: if false; // Server only
+    }
+
+    // =========================================================================
+    // Admin logs — read only for admins
+    // =========================================================================
+
+    match /adminLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // Support & Disputes
+    // =========================================================================
+
+    match /supportTickets/{ticketId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId) || isAdmin();
+    }
+
+    match /disputes/{disputeId} {
+      allow read: if isSignedIn() && (
+        resource.data.raisedBy == request.auth.uid ||
+        resource.data.against == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isSignedIn();
+      allow update: if isAdmin();
+    }
+
+    // =========================================================================
+    // System settings
+    // =========================================================================
+
+    match /systemSettings/{id} {
+      allow read: if true;
+      allow write: if isSuperAdmin();
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
