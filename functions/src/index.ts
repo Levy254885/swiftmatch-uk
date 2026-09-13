@@ -4,6 +4,7 @@
  * - Registration with server-side role
  * - Admin verification
  * - Match expiry timers
+ * - Stripe PaymentIntent (amount from quote doc only)
  */
 
 import * as admin from 'firebase-admin';
@@ -21,7 +22,6 @@ function assertAuth(request: { auth?: { uid: string } }) {
   return request.auth.uid;
 }
 
-/** Atomic exclusive accept — only one provider can claim the job. */
 export const acceptJob = onCall(async (request) => {
   const uid = assertAuth(request);
   const { jobId, matchId } = request.data as { jobId?: string; matchId?: string };
@@ -194,4 +194,31 @@ export const setProviderVerification = onCall(async (request) => {
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
   });
   return { success: true };
+});
+
+/** Amount is read from the quote document — never trust client amounts. */
+export const createPaymentIntent = onCall(async (request) => {
+  const uid = assertAuth(request);
+  const { quoteId, jobId } = request.data as { quoteId?: string; jobId?: string };
+  if (!quoteId || !jobId) {
+    throw new HttpsError('invalid-argument', 'quoteId and jobId are required.');
+  }
+
+  const quoteSnap = await db.collection('quotes').doc(quoteId).get();
+  if (!quoteSnap.exists) {
+    throw new HttpsError('not-found', 'Quote not found.');
+  }
+  const quote = quoteSnap.data()!;
+  if (quote.customerId !== uid) {
+    throw new HttpsError('permission-denied', 'Not your quote.');
+  }
+  if (quote.status !== 'pending') {
+    throw new HttpsError('failed-precondition', 'Quote is not actionable.');
+  }
+
+  // Production: Stripe PaymentIntent capture_method manual + metadata
+  throw new HttpsError(
+    'failed-precondition',
+    'Stripe is not configured. Set STRIPE_SECRET_KEY and enable PaymentIntent creation.'
+  );
 });
