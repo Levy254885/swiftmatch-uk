@@ -2,107 +2,78 @@
 
 **Find the right professional, available now.**
 
-SwiftMatch is a production-grade instant service-matching marketplace for the United Kingdom. Customers describe what they need; the platform intelligently matches them with verified, available professionals in minutes — without requiring customers to browse hundreds of profiles.
+Production-oriented instant service-matching marketplace for the United Kingdom. Customers describe what they need; the platform matches them with verified, **available** professionals in minutes — without browsing hundreds of profiles.
 
-## Core Differentiator
+## Differentiator
 
-Traditional marketplaces force customers to search and wait. SwiftMatch does the searching:
+1. Customer describes the job  
+2. Deterministic **Intelligent Matching Engine** classifies the service  
+3. Hard filters + soft ranking select eligible, available professionals  
+4. Providers are notified with urgency-based response windows  
+5. Customer gets suitable matches / quotes quickly  
 
-1. Customer describes the job in natural language  
-2. Internal Intelligent Matching Engine classifies the service  
-3. Hard filters + soft ranking identify eligible, available professionals  
-4. Controlled real-time notifications go to the best matches  
-5. Customer receives suitable matches / quotes quickly  
+**No paid AI API** for core matching. Taxonomy, keywords, synonyms, geo, availability, ratings, and performance drive ranking.
 
-**No paid AI API dependency** for core matching. Classification and ranking use a deterministic engine built on service taxonomy, keywords, synonyms, geospatial data, availability, ratings and performance metrics.
+## Tech stack
 
-## Tech Stack
+| Layer | Choice |
+|-------|--------|
+| Frontend | Next.js (App Router) + TypeScript + Tailwind |
+| Backend | Firebase Auth, Firestore, Cloud Functions |
+| Payments | Stripe (UK) |
+| Hosting | Vercel + Firebase |
 
-- **Frontend**: Next.js 15 (App Router) + TypeScript + Tailwind CSS
-- **Backend**: Firebase (Auth, Firestore, Cloud Functions, Storage, App Check)
-- **Payments**: Stripe (UK-compatible)
-- **Images**: Cloudinary (preferred) or Firebase Storage + CDN
-- **Email**: Abstraction layer (Resend / SendGrid / etc.)
-- **Hosting**: Vercel (frontend) + Firebase
+## Quick start
 
-## Project Structure
-
-```
-src/
-├── app/                    # Next.js App Router pages
-├── components/             # Reusable UI components + design system
-├── features/               # Feature modules (customer, provider, admin, matching)
-├── lib/                    # Firebase, utilities, constants
-├── services/               # Business logic services
-├── matching/               # Intelligent Matching Engine
-├── types/                  # TypeScript types
-├── hooks/                  # React hooks
-├── validation/             # Zod schemas
-└── styles/                 # Global styles
-
-functions/                  # Firebase Cloud Functions
-firestore.rules             # Security rules
-firestore.indexes.json      # Composite indexes
+```bash
+git clone https://github.com/Levy254885/swiftmatch-uk.git
+cd swiftmatch-uk
+npm install
+cp .env.example .env.local
+npm run dev
 ```
 
-## Getting Started
+Open http://localhost:3000
 
-### Prerequisites
+**Demo matching works without Firebase.** Try `/request` with:
 
-- Node.js 20+
-- Firebase project
-- Stripe account (for payments)
-- Cloudinary account (recommended)
+> My kitchen pipe has burst and water is everywhere.  
+> Postcode: `M1 1AE` · Urgency: Emergency
 
-### Setup
+Full setup: **[SETUP.md](./SETUP.md)**.
 
-1. Clone the repository
-2. Copy `.env.example` → `.env.local` and fill values
-3. `npm install`
-4. Configure Firebase (`firebase login`, set project)
-5. Deploy security rules & indexes
-6. Seed development data (`npm run seed`)
-7. `npm run dev`
+## Main routes
 
-See [SETUP.md](./SETUP.md) for detailed instructions.
+| Route | Role |
+|-------|------|
+| `/` | Landing |
+| `/request` | Customer: describe → classify → match |
+| `/jobs/[id]` | Quote → book → track |
+| `/jobs/[id]/chat` | Messaging |
+| `/jobs/[id]/review` | Star review |
+| `/login` · `/register` | Auth |
+| `/provider/onboarding` | Provider setup |
+| `/provider/dashboard` | Provider overview |
+| `/provider/requests` | Incoming matches |
+| `/provider/availability` | Availability controls |
+| `/admin` | Operations |
+| `/admin/providers` | Verification |
+| `/admin/disputes` | Disputes |
+| `/support` | Help form |
+| `/for-professionals` | Provider marketing |
 
-## Key Features
+## Architecture
 
-- Instant job request flow with natural language description
-- Deterministic Intelligent Matching Engine (no external LLM required)
-- Real-time provider availability & cascading matching
-- Provider response timers for urgent jobs
-- Quotes, bookings, payments (Stripe)
-- Real-time messaging
-- Reviews with fraud protection
-- Full admin operations centre
-- UK postcode / geolocation support
-- Service taxonomy + keyword/synonym engine
-- Strict Firestore security rules & RBAC
-- Mobile-first, accessible UI
+- Matching: `src/matching/engine.ts` + `src/lib/matching-orchestration.ts`
+- Job lifecycle: `src/lib/job-state-machine.ts`
+- Security: `firestore.rules` — roles never client-writable
+- Functions: `acceptJob`, registration, verification, expiry, payment intent stub
+- Realtime: `src/hooks/useProviderMatches.ts`
 
-## Matching Engine Principles
+## Principles
 
-1. **Correct professional > fast professional > cheap professional**
-2. Availability must be real — never show “Available now” when busy
-3. Hard filters first, then soft ranking
-4. Urgency dynamically adjusts scoring weights
-5. Controlled exposure for new verified providers (fair matching)
-6. Never match completely unrelated services
-
-## Development Phases
-
-- Phase 1: Architecture, auth, design system, schema, security
-- Phase 2: Customer flow, taxonomy, matching engine
-- Phase 3: Provider onboarding & dashboard
-- Phase 4: Bookings, messaging, notifications, reviews
-- Phase 5: Payments, admin, analytics, disputes
-- Phase 6: SEO, performance, hardening, testing, deployment
-
-## Brand
-
-Placeholder brand: **SwiftMatch**. Easy to rebrand later.
-
-## Licence
-
-Proprietary — All rights reserved.
+1. Functional correctness and security first  
+2. Correct professional > fast > cheap  
+3. Real availability only (busy/offline excluded)  
+4. Trust: verification and money moves are server-side  
+5. UK-first (postcodes, GBP, miles, 999 safety notes)
