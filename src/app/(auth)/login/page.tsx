@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,8 +12,15 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card';
+import {
+  isFirebaseConfigured,
+  loginWithEmail,
+  mapAuthError,
+  redirectPathForRole,
+} from '@/lib/auth';
 
 export default function LoginPage() {
+  const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -23,14 +31,16 @@ export default function LoginPage() {
     setError('');
     setLoading(true);
     try {
-      // Production: Firebase Auth signInWithEmailAndPassword
-      // Role is read from users/{uid} after sign-in — never set client-side
-      await new Promise((r) => setTimeout(r, 600));
-      setError(
-        'Firebase Auth is not configured yet. Add NEXT_PUBLIC_FIREBASE_* keys to .env.local'
-      );
-    } catch {
-      setError('Unable to sign in. Please try again.');
+      if (!isFirebaseConfigured()) {
+        setError(
+          'Firebase Auth is not configured yet. Add NEXT_PUBLIC_FIREBASE_* keys to .env.local'
+        );
+        return;
+      }
+      const profile = await loginWithEmail(email, password);
+      router.push(redirectPathForRole(profile.role));
+    } catch (err) {
+      setError(mapAuthError(err));
     } finally {
       setLoading(false);
     }

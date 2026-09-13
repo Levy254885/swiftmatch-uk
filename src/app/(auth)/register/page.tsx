@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -11,10 +12,16 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card';
+import {
+  isFirebaseConfigured,
+  registerWithEmail,
+  mapAuthError,
+} from '@/lib/auth';
 
 type AccountType = 'customer' | 'provider';
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [accountType, setAccountType] = useState<AccountType>('customer');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -31,13 +38,25 @@ export default function RegisterPage() {
     }
     setLoading(true);
     try {
-      // Production: createUserWithEmailAndPassword then server sets role
-      await new Promise((r) => setTimeout(r, 600));
-      setError(
-        'Firebase Auth is not configured yet. Add NEXT_PUBLIC_FIREBASE_* keys to .env.local'
-      );
-    } catch {
-      setError('Unable to create account. Please try again.');
+      if (!isFirebaseConfigured()) {
+        setError(
+          'Firebase Auth is not configured yet. Add NEXT_PUBLIC_FIREBASE_* keys to .env.local'
+        );
+        return;
+      }
+      const { role } = await registerWithEmail({
+        email,
+        password,
+        displayName,
+        role: accountType,
+      });
+      if (role === 'provider') {
+        router.push('/provider/onboarding');
+      } else {
+        router.push('/request');
+      }
+    } catch (err) {
+      setError(mapAuthError(err));
     } finally {
       setLoading(false);
     }
