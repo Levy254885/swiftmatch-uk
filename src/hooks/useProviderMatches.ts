@@ -1,10 +1,5 @@
 'use client';
 
-/**
- * Real-time provider match inbox.
- * Subscribes to matches where providerId == uid and status in notified/pending.
- */
-
 import { useEffect, useState } from 'react';
 import {
   collection,
@@ -14,7 +9,7 @@ import {
   orderBy,
   type Unsubscribe,
 } from 'firebase/firestore';
-import { db, isFirebaseConfigured } from '@/lib/firebase';
+import { getClientDb, isFirebaseConfigured } from '@/lib/firebase';
 import type { Match, MatchStatus } from '@/types';
 
 export type InboxMatch = Match & {
@@ -50,7 +45,7 @@ export function useProviderMatches(providerId: string | null | undefined) {
 
     try {
       const q = query(
-        collection(db, 'matches'),
+        collection(getClientDb(), 'matches'),
         where('providerId', '==', providerId),
         where('status', 'in', OPEN_STATUSES),
         orderBy('createdAt', 'desc')
@@ -98,7 +93,7 @@ export function useCustomerJobs(customerId: string | null | undefined) {
     }
 
     const q = query(
-      collection(db, 'jobs'),
+      collection(getClientDb(), 'jobs'),
       where('customerId', '==', customerId),
       orderBy('createdAt', 'desc')
     );

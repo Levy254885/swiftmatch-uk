@@ -1,7 +1,6 @@
 /**
  * Client-side auth helpers.
- * Roles are NEVER written from the client — only via completeRegistration CF
- * or Admin SDK. After sign-in we read users/{uid}.role from Firestore.
+ * Roles are NEVER written from the client — only via completeRegistration CF.
  */
 
 import {
@@ -12,16 +11,16 @@ import {
   type User as FirebaseUser,
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
-import { httpsCallable, getFunctions } from 'firebase/functions';
-import { auth, db, app } from './firebase';
+import { httpsCallable } from 'firebase/functions';
+import {
+  isFirebaseConfigured,
+  getClientAuth,
+  getClientDb,
+  getClientFunctions,
+} from './firebase';
 import type { UserRole } from '@/types';
 
-export function isFirebaseConfigured(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_FIREBASE_API_KEY &&
-      process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
-  );
-}
+export { isFirebaseConfigured };
 
 export type AuthProfile = {
   uid: string;
@@ -43,14 +42,16 @@ export async function registerWithEmail(params: {
   }
 
   const cred = await createUserWithEmailAndPassword(
-    auth,
+    getClientAuth(),
     params.email,
     params.password
   );
 
   try {
-    const functions = getFunctions(app);
-    const completeRegistration = httpsCallable(functions, 'completeRegistration');
+    const completeRegistration = httpsCallable(
+      getClientFunctions(),
+      'completeRegistration'
+    );
     await completeRegistration({
       role: params.role,
       displayName: params.displayName,
@@ -76,7 +77,7 @@ export async function loginWithEmail(
     );
   }
 
-  const cred = await signInWithEmailAndPassword(auth, email, password);
+  const cred = await signInWithEmailAndPassword(getClientAuth(), email, password);
   const profile = await loadUserProfile(cred.user.uid);
   return {
     uid: cred.user.uid,
@@ -89,7 +90,7 @@ export async function loginWithEmail(
 export async function loadUserProfile(
   uid: string
 ): Promise<{ role: UserRole; displayName?: string } | null> {
-  const snap = await getDoc(doc(db, 'users', uid));
+  const snap = await getDoc(doc(getClientDb(), 'users', uid));
   if (!snap.exists()) return null;
   const data = snap.data();
   return {
@@ -99,13 +100,18 @@ export async function loadUserProfile(
 }
 
 export async function signOut(): Promise<void> {
-  await firebaseSignOut(auth);
+  if (!isFirebaseConfigured()) return;
+  await firebaseSignOut(getClientAuth());
 }
 
 export function subscribeToAuth(
   callback: (user: FirebaseUser | null) => void
 ): () => void {
-  return onAuthStateChanged(auth, callback);
+  if (!isFirebaseConfigured()) {
+    callback(null);
+    return () => {};
+  }
+  return onAuthStateChanged(getClientAuth(), callback);
 }
 
 export function mapAuthError(error: unknown): string {
@@ -128,9 +134,7 @@ export function mapAuthError(error: unknown): string {
     case 'auth/too-many-requests':
       return 'Too many attempts. Please try again later.';
     default:
-      if (error instanceof Error && error.message) {
-        return error.message;
-      }
+      if (error instanceof Error && error.message) return error.message;
       return 'Something went wrong. Please try again.';
   }
 }
